@@ -1,0 +1,114 @@
+USE [EMPRIME_Test]
+GO
+/****** Object:  StoredProcedure [dbo].[USP_Get_HRDashboardWithSearch]    Script Date: 8/11/2020 2:06:18 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+  
+ALTER PROCEDURE [dbo].[USP_Get_HRDashboardWithSearch]
+(    
+ @RoleId  INT,  
+ @LoginId  INT,
+ @PageNo INT, 
+ @PageSize INT,
+ @NameSearch VARCHAR(800) = NULL,
+ @AssignedHR INT,
+ @Status VARCHAR(100)
+)    
+AS    
+BEGIN    
+ SET NOCOUNT ON;  
+    
+ DECLARE @SQL NVARCHAR(MAX)  
+ DECLARE @SQL_Count NVARCHAR(MAX)  
+ DECLARE @Params NVARCHAR(MAX)   
+
+ DECLARE @OffsetCount INT = 0
+ IF(@PageNo = 1)
+	SET @OffsetCount = 0
+ ELSE
+	SET @OffsetCount = (@PageSize * @PageNo) - @PageSize
+
+  SET @SQL = N'
+  SELECT  
+	  U.UserId,     
+	  U.CandidateId [CandidateID],  
+	  U.User_FirstName,  
+	  U.User_LastName,  
+	  U.User_FirstName + '' '' + U.User_LastName [FullName],  
+	  LTRIM(RTRIM(U.User_Email)) [EmailID],  
+	  (SELECT F.Facility_Name FROM Emprime_UserMapping UM INNER JOIN Emprime_Facility F ON F.Facility_Id = UM.UserMapping_FacilityId WHERE UM.UserMapping_UserId = U.UserId) Facility,  
+	  LTRIM(RTRIM((SELECT JobDescription FROM Emprime_AppliedJob WHERE JobId = UM.JobId))) [JobTitle],  
+	  U.[State] [State],  
+	  U.ZipCode [PostalCode],  
+	  UM.UserMapping_WorkCategory [WorkCategory],  
+	  UM.UserMapping_WorkSchedule [WorkSchedule],  
+	  UM.UserMapping_WorkType [Type],  
+	  UM.StartDate,  
+	  U.IsLawson,  
+	  CASE WHEN (SELECT TOP 1 NurseAcknowledged FROM Emprime_FormMapping WHERE UserId = U.UserId) = 1  
+	  THEN ''Approved''  
+	  ELSE ''In-Progress''  
+	  END [Status],  
+	  (SELECT ISNULL((SELECT ROUND((((SELECT COUNT(*) FROM  Emprime_FormMapping  WHERE UserId = U.UserId AND FormIsAcknowledged IN (0,1)) * 100 ) / (NULLIF((SELECT COUNT(*) FROM  Emprime_FormMapping  WHERE UserId = U.UserId),0))),2)),0)) [Progress],  
+	  (SELECT COUNT(*) FROM  Emprime_FormMapping  WHERE UserId = U.UserId) [TabCount],  
+	  (SELECT COUNT(*) FROM  Emprime_FormMapping  WHERE UserId = U.UserId AND FormIsAcknowledged IN (0,1)) [CompletedTab],  
+	  (SELECT ISNULL((SELECT ROUND((((SELECT COUNT(*) FROM  Emprime_FormMapping  WHERE UserId = U.UserId AND FormIsAcknowledged IN (0,1)) * 100 ) / (NULLIF((SELECT COUNT(*) FROM  Emprime_FormMapping  WHERE UserId = U.UserId),0))),2)),0)) [Percentage],  
+	  CASE  
+	   WHEN (SELECT S.Status_Name FROM Emprime_TourStatus TS INNER JOIN Emprime_Tour T ON TS.Tour_Id = T.Tour_Id INNER JOIN Emprime_Status S ON S.Status_Id = TS.Status_Id WHERE TS.UserId = U.UserId) = ''In-Progress''   
+		THEN (SELECT T.Tour_Name FROM Emprime_TourStatus TS INNER JOIN Emprime_Tour T ON TS.Tour_Id = T.Tour_Id INNER JOIN Emprime_Status S ON S.Status_Id = TS.Status_Id WHERE TS.UserId = U.UserId)  
+	  END AS Tour,  
+	  T.Tour_Name,
+	  U2.UserId  [AssignedHR_Id],  
+	  U2.User_FirstName + '' '' + U2.User_LastName [AssignedHR]  
+	 FROM    
+	  Emprime_Users U    
+	 INNER JOIN Emprime_UserMapping UM ON UM.UserMapping_UserId = U.UserId  
+	 LEFT JOIN Emprime_Users U2 ON UM.AssignedHR = U2.UserId  
+	 INNER JOIN Emprime_TourStatus TS ON UM.UserMapping_UserId = TS.UserId  
+	 INNER JOIN Emprime_Tour T ON TS.Tour_Id = T.Tour_Id
+	 WHERE U.UserRole_ID =  @RoleId '
+
+ SET @SQL_Count = N'
+ SELECT 
+	COUNT(*) 
+	FROM Emprime_Users U
+	INNER JOIN Emprime_UserMapping UM ON UM.UserMapping_UserId = U.UserId  
+	LEFT JOIN Emprime_Users U2 ON UM.AssignedHR = U2.UserId  
+	INNER JOIN Emprime_TourStatus TS ON UM.UserMapping_UserId = TS.UserId  
+	INNER JOIN Emprime_Tour T ON TS.Tour_Id = T.Tour_Id WHERE U.UserRole_ID = @RoleId '
+
+ IF @NameSearch IS NOT NULL
+ BEGIN
+	SET @SQL = @SQL + ' AND ((CONCAT(U.User_FirstName, '' '', U.User_LastName) LIKE ''%'' + @NameSearch + ''%'') OR (CONCAT(U.User_LastName, '' '', U.User_FirstName) LIKE ''%'' + @NameSearch + ''%''))'
+	SET @SQL_Count = @SQL_Count + ' AND ((CONCAT(U.User_FirstName, '' '', U.User_LastName) LIKE ''%'' + @NameSearch + ''%'') OR (CONCAT(U.User_LastName, '' '', U.User_FirstName) LIKE ''%'' + @NameSearch + ''%''))'
+ END
+
+ IF @AssignedHR != 0
+ BEGIN
+	SET @SQL = @SQL + ' AND U2.UserId = @AssignedHR '
+	SET @SQL_Count = @SQL_Count + ' AND U2.UserId = @AssignedHR '
+ END
+
+ IF @Status != 'All'
+ BEGIN
+	SET @SQL = @SQL + ' AND T.Tour_Name = @Status '
+	SET @SQL_Count = @SQL_Count + ' AND T.Tour_Name = @Status '
+ END
+ 
+ SET @SQL = @SQL + N' ORDER BY U.User_CreatedDate DESC  
+					 OFFSET @OffsetCount ROWS
+					 FETCH NEXT @PageSize ROWS ONLY ' 
+
+ SET @SQL = @SQL + @SQL_Count
+
+ PRINT(@SQL)
+
+ SET @Params = N'@RoleId INT, @LoginId INT, @PageSize INT, @OffsetCount INT, @NameSearch NVARCHAR(800), @AssignedHR INT, @Status NVARCHAR(100)'  
+
+ EXEC SP_EXECUTESQL @SQL, @Params, @RoleId = @RoleId, @LoginId = @LoginId, @PageSize = @PageSize, @OffsetCount = @OffsetCount, @NameSearch = @NameSearch, @AssignedHR = @AssignedHR, @Status = @Status
+
+END
+
+-- EXEC USP_Get_HRDashboardWithSearch 4,253,1,10,NULL,232,'All'
