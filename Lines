@@ -96,3 +96,5 @@ END
  
 -- EXEC USP_Insert_HRInitialPhase
 
+LIKE ''%'' + @NameSearch + ''%''
+
