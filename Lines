@@ -9,3 +9,16 @@ DataTable dt = new DataTable();
                 _dr["isSelected"] = Rec.isSelected;
                 dt.Rows.Add(_dr);
             }
+            
+            USE [Emprime_StFrancis]
+GO
+
+/****** Object:  UserDefinedTableType [dbo].[FormDetails]    Script Date: 8/21/2020 1:54:51 PM ******/
+CREATE TYPE [dbo].[FormDetails] AS TABLE(
+	[FormName] [varchar](max) NULL,
+	[isSelected] [bit] NULL
+)
+GO
+
+
+
