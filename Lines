@@ -20,5 +20,79 @@ CREATE TYPE [dbo].[FormDetails] AS TABLE(
 )
 GO
 
+GO
+/****** Object:  StoredProcedure [dbo].[USP_Insert_NurseHB]    Script Date: 8/21/2020 2:02:50 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
 
+ALTER PROCEDURE [dbo].[USP_Insert_NurseHB]
+(
+	@UserID INT,
+	@FormName VARCHAR(300),
+	@LoginId INT,
+	@tblNHB NHepatitisB READONLY
+)
+
+AS  
+BEGIN  
+	SET NOCOUNT ON;
+
+	BEGIN TRANSACTION;
+    SAVE TRANSACTION MySavePoint;
+
+	BEGIN TRY
+		DECLARE @k int = 0
+
+		DECLARE @FacilityCheck int = 0
+		SET @FacilityCheck = (SELECT 
+		 						CASE 
+									WHEN (SELECT UM.UserMapping_FacilityId FROM Emprime_Users U INNER JOIN Emprime_UserMapping UM ON UM.UserMapping_UserId = U.UserId WHERE U.UserId = @UserID) = (SELECT UM.UserMapping_FacilityId FROM Emprime_Users U INNER JOIN Emprime_UserMapping UM ON UM.UserMapping_UserId = U.UserId WHERE U.UserId = @LoginId) 
+									THEN 1  
+									ELSE 0
+								END 
+							 )
+		
+		IF(@FacilityCheck > 0)
+			BEGIN
+				
+				DECLARE @RecCount INT
+				SET @RecCount  = (SELECT Count(*) FROM @tblNHB)
+		
+				DECLARE @FormMapping INT
+				SET @FormMapping = (SELECT TOP 1 FormMapping_Id FROM Emprime_FormMapping WHERE UserId = @UserID AND Form_Id = (SELECT Form_Id FROM Emprime_Form WHERE Form_Name = @FormName) ORDER BY FormMapping_Id DESC)
+
+				DELETE FROM Emprime_NurseHepatitisB WHERE FormMapping_Id = @FormMapping
+
+				WHILE @k < @RecCount 
+				BEGIN
+
+					INSERT INTO Emprime_AuditLogins (IPAddress, AccessDateTime, IsSuccess) VALUES (@k + 1, GETUTCDATE(), 0)
+
+					INSERT INTO Emprime_NurseHepatitisB (FormMapping_Id, Dose, [Date], [Site], LotNum, ManufactureDate, ExpiryDate) VALUES
+						(@FormMapping,  
+						(SELECT [Dose] FROM @tblNHB WHERE SNo = @k + 1),
+						(SELECT [Date] FROM @tblNHB WHERE SNo = @k + 1),
+						(SELECT [Site] FROM @tblNHB WHERE SNo = @k + 1),
+						(SELECT LotNum FROM @tblNHB WHERE SNo = @k + 1),
+						(SELECT ManufactureDate FROM @tblNHB WHERE SNo = @k + 1),
+						(SELECT ExpiryDate FROM @tblNHB WHERE SNo = @k + 1) )
+
+					--BREAK;
+					SELECT @k = @k + 1
+				END
+		END
+
+	END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+        BEGIN
+            ROLLBACK TRANSACTION MySavePoint; 
+        END
+    END CATCH
+    COMMIT TRANSACTION 
+END  
+ 
+-- EXEC USP_Insert_HRInitialPhase
 
