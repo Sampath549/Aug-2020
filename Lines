@@ -1,0 +1,11 @@
+DataTable dt = new DataTable();
+            dt.Columns.Add("FormName");
+            dt.Columns.Add("isSelected");
+
+            foreach (var Rec in list)
+            {
+                DataRow _dr = dt.NewRow();
+                _dr["FormName"] = Rec.FormName;
+                _dr["isSelected"] = Rec.isSelected;
+                dt.Rows.Add(_dr);
+            }
